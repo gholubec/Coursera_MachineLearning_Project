@@ -1,0 +1,203 @@
+---
+title: "Activity_Project_Predictor_Development"
+author: "George B. Holubec"
+date: "Thursday, April 23, 2015"
+output: html_document
+---
+#Executive Summary  
+The intent of this project was to build a predictor which would return immediate classifications (A through E) of single samples of physical activity concerning the lifting of a 
+**dumb bell**.[1] Classification **A** corresponded to the use of proper technique. 
+Classifications **B** through **E** represented various categories of improper technique.  Training and Test Samples were taken respectively from [2] and [3].  
+ 
+In this project:  
+* Accuracy was prioritized over speed of build.    
+* Random Forest Algorithm Approach was chosen for its known high accuracy.  
+* Within the trainining samples, __OOB estimate of error rate: 0.66%__ 
+See **Predictor Construction>Random Forest>First Evaluation of modFit**    
+* **Overall Out of Sample Error Rate: 0.53%**. See 
+**Cross Validation and Out of Sample Error Analysis>Over All Out Of Sample Error Rate** 
+Section below.    
+
+#Document Organization  
+* Executive Summary  
+* Document Organization  
+* Data Harvest and Cleaning  
+* Predictor Construction  
+* Testing of 20 Sample Tests  
+* References  
+
+#Data Harvest and Cleaning  
+```{r,echo=FALSE}
+setwd("E:/Coursera.d/JohnHopkinsCertification.d/MachineLearning.d/Project.d")
+trainingFileObj <- read.csv("pml-training.csv")
+```
+
+
+####Feature Reduction  
+Summary statistics are not found in the test data. It looks as though the test 
+data was intended to test a predictor used in a "real time" mode where each 
+sample is immediately classified without any comparison to any prior samples.
+
+1) All Summary Statistics are removed from the feature list. (e.g. var,avg,min, etc.) 
+  
+2) Features identifying the sliding **window** and sample time stamp are removed. 
+
+3) Index is removed. (This would have been a serious confounding feature.)
+
+```{r}
+
+measurementTypeS <- c("amplitude","var","stddev","avg",
+                      "total","min","max","skewness",
+                      "timestamp","kurtosis","problem","window")
+
+featuresToBeRemoved <- c()
+for (measurementType in measurementTypeS) {
+  featuresToBeRemoved <- c(featuresToBeRemoved,grep(measurementType,
+                                                   names(trainingFileObj),
+                                                   value=TRUE))
+}
+#Tally of feature Reduction  
+dim(trainingFileObj)
+length(featuresToBeRemoved)
+
+for (feature in featuresToBeRemoved){
+  trainingFileObj[,feature] <- NULL
+}
+
+dim(trainingFileObj)
+
+trainingClasse <- trainingFileObj$classe
+
+```
+
+
+
+
+####Quick Look at the Test File Object  
+
+```{r}
+testFileObj <- read.csv("pml-testing.csv")
+
+for (feature in featuresToBeRemoved){
+  testFileObj[,feature] <- NULL
+}
+
+dim(testFileObj)
+
+```
+
+
+####Feature Audit  
+Here a check is made to make sure that the features of the **trainingFileObj** are 
+identical to those of **testFileObj**.
+```{r}
+names(testFileObj) == names(trainingFileObj)
+
+#Finding the name of the last feature where there is no agreement
+names(testFileObj)[length(names(testFileObj))]
+
+#Removing Index from both Lists  
+trainingFileObj$X <- NULL
+testFileObj$X <- NULL
+```
+
+
+#Predictor Construction
+####Steps to be performed  
+Five Possible Outcomes A) B) C) D) and E).  
+
+Intend to use "high" performance out of the box test. 
+This was done due to project time limitations, and the need for 
+high accuracy at the outset.  Interpretability and speed of predictor 
+construction became of secondary importance.  
+
+Methods being considered:  Random Forest  or Boosting  
+
+Random Forest was adopted since its error rate performance of 1 percent was judged 
+good enough.  
+
+##Random Forest  
+####Data Partition
+```{r}
+set.seed(2718)
+library(ggplot2);library(caret)
+inTrain <- createDataPartition(y=trainingFileObj$classe,
+                               p=0.7, list=FALSE)
+
+training <- trainingFileObj[inTrain,]
+testing <- trainingFileObj[-inTrain,]
+
+```
+
+####Predictor Creation and Tuning  
+Done Only Once, since this took several hours to complete 
+the object **modFit** was placed in storage for later retrieval.  
+```{r,eval=FALSE}
+require(randomForest)
+modFit <- train(classe ~ .,data=training,
+                method="rf",
+                prox=TRUE)
+save(modFit,file="modFit.Rdata")
+```
+
+
+####train object **modFit** loaded from storage  
+```{r,eval=TRUE}
+require(randomForest)
+load("modFit.Rdata")
+```
+
+####First Evaluation of modFit   
+```{r}
+
+modFit
+#getTree(modFit$finalModel,k=2,labelVar=TRUE)
+modFit$finalModel
+```
+
+
+#Cross Validation and Out of Sample Error Analysis 
+Cross validation was performed with a simple partition where 30% 
+of the original training samples were randomly chosen for testing. 
+See section **Predictor Construction>Random Forest>Data Partition** above 
+for further details.  
+```{r}
+pred <- predict(modFit,newdata=testing)
+testing$predRight <- pred == testing$classe
+table(pred,testing$predRight)
+confusionMatrix(pred,testing$classe)
+
+```
+
+####Over All Out Of Sample Error Rate
+```{r}
+errorRate <- 1-confusionMatrix(pred,testing$classe)$overall[1]
+names(errorRate) <- "errorRate"
+errorRate
+```
+
+
+
+#Testing of 20 Sample Tests  
+This code was performed for compliance with the second half of the project.  
+```{r, eval=FALSE}
+answers <- as.character(predict(modFit,newdata=testFileObj))
+#answers
+
+#Answer File Creation
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+```
+
+#References  
+
+1. Weight Lifting Excercise: http://groupware.les.inf.puc-rio.br/har   
+2. Training Data: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv  
+3. Testing Data: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv  
